@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+  }
+}
+
+body {
+  @apply antialiased text-slate-900 bg-slate-50;
+}
+
+/* 弹性大纲目录重构样式 (Elastic Outline Tree) */
+
+.elastic-outline-container {
+  padding-left: 12px;
+  position: relative;
+}
+
+.elastic-outline-item {
+  position: relative;
+  padding-bottom: 24px;
+}
+
+
+/* 一级标题节点效果 (Chapter) */
+.chapter-node {
+  font-weight: 700;
+  font-size: 20px;
+  color: #1e293b;
+  margin-bottom: 12px;
+}
+
+/* 二级节点 (Section) */
+.section-node {
+  margin-left: 16px;
+  margin-top: 16px;
+  font-weight: 600;
+  font-size: 16px;
+  color: #475569;
+}
+
+/* 三级节点红色圆点 (Subsection) */
+.subsection-list {
+  margin-left: 24px;
+  margin-top: 12px;
+}
+
+.subsection-node {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: #64748b;
+  position: relative;
+}
+
+
+/* 字数监控指标 */
+.word-metrics {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.word-metrics-zero {
+  color: #94a3b8;
+}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+const original_markdown = `## 一、投标函  \r\n：  \r\n我方全面研究了“               ”项目相关事宜。  \r\n一、我方自愿按照招标文件规定的各项要求。  \r\n二、一旦我方中标。  \r\n`;
+const activeChapter = "一、投标函";
+const cleanActiveChapter = activeChapter.replace(/^第[一二三四五六七八九十百]+章/g, '').trim();
+
+const lines = original_markdown.split('\n');
+let capturing = false;
+let captureLevel = 0;
+const result = [];
+
+for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)/);
+    
+    if (headingMatch) {
+        const level = headingMatch[1].length;
+        const title = headingMatch[2].trim();
+        
+        if (!capturing) {
+            if (title.includes(activeChapter) || (cleanActiveChapter && title.includes(cleanActiveChapter))) {
+                capturing = true;
+                captureLevel = level;
+                result.push(line);
+            }
+        } else {
+            if (level <= captureLevel) {
+                break;
+            } else {
+                result.push(line);
+            }
+        }
+    } else if (capturing) {
+        result.push(line);
+    }
+}
+const ans = result.length > 0 ? result.join('\n') : original_markdown;
+console.log(ans);
+</script>
+</body>
+</html>

@@ -1,0 +1,485 @@
+
+商务标功能数据库变更对齐清单（基于现有源码）
+商务标功能数据库变更对齐清单（基于现有源码）
+1. 文档定位
+本文档不是新的产品方案，也不是完整技术实施方案，而是专门给程序员和技术负责人使用的 数据库对齐清单。
+目的只有一个：
+在现有多公司后台源码基础上，新增“商务标制作”功能时，明确哪些表直接新增，哪些表必须扩展，哪些表必须继续沿用，哪些字段不能重复造。
+适用场景：
+程序员准备开始建表和改表
+技术负责人准备审核数据库变更方案
+需要判断新功能设计是否和现有库冲突
+现有源码路径：
+/Users/raoyi/.openclaw/workspace/bid_data_management
+现有数据库文件定义参考：
+backend/src/db/schema.sql
+
+2. CTO 总体结论
+2.1 结论
+新增“商务标制作”功能时：
+不会与现有数据库形成大面积表名冲突
+但不能直接照理想方案生建所有表和字段
+必须先做一次“数据库对齐”
+2.2 本次对齐的核心原则
+现有资料底座表优先沿用，不重建平行表
+商务标模块只新增项目级工作流相关表
+现有表中已存在的 company_id 口径继续沿用
+现有表缺失的公司维度字段，需要补齐
+字段命名以现有源码实际表结构为主，不以理想命名强推重构
+商务标中的人员/业绩/附件选择，首版优先通过绑定表解决，不强推底座全面 ID 化重构
+
+3. 现有数据库现状概览
+根据当前 schema.sql，现有主要表包括：
+3.1 资料底座表
+file_asset
+document_record
+audit_item
+issue_record
+project_performance
+performance_proof
+person
+person_certificate
+qualification
+honor_record
+integrity_record
+evaluation_record
+import_batch
+3.2 系统表
+task_run
+company_profile
+system_settings
+change_log
+3.3 现有系统特征
+当前系统已经具备：
+多公司基础支持
+资料对象化结构
+文件与审核基础能力
+导入任务与全局任务基础能力
+因此，商务标功能应该作为：
+资料底座之上的项目工作流子系统
+而不是再建一套新的资料主库。
+
+4. 本次数据库对齐分类
+本次数据库变更建议分成三类：
+A 类：可直接新增的新表
+这些表现有系统里没有，且商务标模块需要单独维护，建议直接新增。
+B 类：现有表必须扩展字段
+这些表必须继续沿用，但需要新增字段才能支撑商务标或多公司一致性。
+C 类：现有表继续沿用，禁止重建平行表
+这些表已有明确职责，商务标模块应该通过引用和绑定使用，不应另建同义表。
+
+5. A 类：建议直接新增的表
+以下表名与现有库无直接冲突，建议直接新增。
+5.1 bid_projects
+用途：商务标项目主表
+建议字段：
+id
+company_id
+project_name
+tender_code
+construction_location
+project_status
+current_step
+current_step_status
+adaptation_conclusion
+risk_level
+blocking_reason
+last_error_message
+last_confirm_type
+active_version_no
+created_source
+created_by
+created_at
+updated_at
+说明：
+这是商务标模块的根对象，现有系统中没有等价表
+可以直接新增
+5.2 bid_project_steps
+用途：项目级步骤状态表
+建议字段：
+id
+project_id
+step_name
+step_order
+step_status
+warning_count
+retry_count
+blocking_reason
+error_message
+started_at
+finished_at
+created_at
+updated_at
+5.3 bid_project_actions
+用途：步骤内更细粒度动作记录
+建议字段：
+id
+project_id
+step_id
+action_name
+action_status
+payload_json
+result_json
+error_message
+started_at
+finished_at
+created_at
+5.4 bid_project_confirmations
+用途：人工确认节点
+建议字段：
+id
+project_id
+version_no
+confirm_type
+confirm_status
+confirm_payload_json
+confirmed_by
+confirmed_at
+expired_at
+created_at
+5.5 bid_project_risks
+用途：风险项与阻断项记录
+建议字段：
+id
+project_id
+version_no
+risk_type
+risk_level
+related_object_type
+related_object_id
+risk_message
+impact_desc
+resolution_suggestion
+is_blocking
+status
+created_at
+updated_at
+5.6 bid_project_versions
+用途：版本快照主表
+建议字段：
+id
+project_id
+version_no
+version_type
+snapshot_json
+summary_json
+created_by
+created_at
+5.7 bid_project_outputs
+用途：输出结果文件表
+建议字段：
+id
+project_id
+version_no
+output_type
+file_name
+file_path
+mime_type
+status
+created_at
+5.8 bid_project_resource_bindings
+用途：记录当前项目版本选用了哪些人员、业绩、附件、承诺、章节依赖对象
+建议字段：
+id
+project_id
+version_no
+resource_type
+resource_id
+resource_label
+binding_role
+binding_source
+reason_json
+created_at
+说明：
+这是首版非常关键的表
+它的作用是：避免强行改造现有资料主表，把商务标的选择逻辑通过绑定层表达出来
+5.9 bid_project_files
+用途：项目级文件表
+建议字段：
+id
+project_id
+company_id
+file_asset_id（可空，建议新增）
+file_role
+file_name
+original_path
+stored_path
+mime_type
+file_size
+sha256
+created_at
+说明：
+该表不替代 file_asset
+该表用于表达“文件在商务标项目中的角色”
+5.10 bid_project_tasks
+用途：商务标项目级异步任务表
+建议字段：
+id
+project_id
+company_id
+step_name
+task_type
+status
+payload_json
+result_json
+error_message
+started_at
+finished_at
+created_at
+说明：
+该表不替代全局 task_run
+该表只用于商务标模块内任务编排
+
+6. B 类：建议扩展字段的现有表
+以下表不应重建，但建议扩展字段。
+6.1 issue_record
+当前问题
+当前 schema.sql 中 issue_record 未看到 company_id，但现有接口查询已经按 company_id 使用。
+建议新增字段
+company_id
+project_id（可空，建议新增，供商务标风险/问题关联）
+结论
+这是必须修的，不仅为商务标服务，也是为了修复现有多公司口径不完整问题。
+6.2 honor_record
+当前问题
+接口层已按 company_id 查询，但 schema 定义中未见 company_id。
+建议新增字段
+company_id
+结论
+必须补齐。
+6.3 integrity_record
+当前问题
+表定义未见 company_id。
+建议新增字段
+company_id
+结论
+必须补齐。
+6.4 evaluation_record
+当前问题
+表定义未见 company_id。
+建议新增字段
+company_id
+结论
+必须补齐。
+6.5 change_log
+当前问题
+当前字段：
+target_type
+target_id
+action
+before_json
+after_json
+operator
+reason
+对商务标工作流来说，缺少项目维度和公司维度。
+建议新增字段
+company_id
+project_id（可空）
+结论
+不需要新建日志表，直接扩展现有 change_log 即可。
+6.6 task_run
+当前问题
+当前 task_run 更偏系统级任务，没有明确 company_id 和 project_id。
+建议新增字段（可选）
+company_id（可空）
+project_id（可空）
+结论
+不是必须立即改，但建议补，便于统一查询和日志追踪。
+
+7. C 类：必须继续沿用、禁止重建平行表的现有表
+以下表已经有明确业务职责，不建议再建同义平行表。
+7.1 company_profile
+现状
+现有系统公司主表已存在，接口也围绕它实现。
+要求
+不要新增 company 平行表
+文档中提到的 company，统一理解为“公司主数据实体”，具体落库表仍使用 company_profile
+建议
+如需扩展，可在 company_profile 上增字段，但不要改表名。
+7.2 person
+现状
+现有人员主表已存在，且已有：
+company_id
+company_name
+要求
+不要新增 bid_person 或新的人员主表
+商务标项目中的人员选择，统一通过 bid_project_resource_bindings 表达
+字段口径要求
+company_id 是主归属字段
+company_name 仅作为冗余展示字段，不能作为归属主判断依据
+7.3 qualification
+现状
+现有资质主表已存在。
+要求
+不要新建平行资质表
+商务标制作直接引用现有 qualification
+项目内通过绑定表记录“本次用了哪个资质/证书/附件”
+7.4 project_performance
+现状
+现有业绩主表已存在，字段包括：
+project_manager_name
+technical_leader_name
+safety_leader_name
+winning_date
+bid_amount_value
+amount_value
+company_id
+风险点
+商务标理想方案里容易引入：
+project_manager_person_id
+technical_leader_person_id
+CTO 建议
+首版不要强推底座全面 ID 化。
+要求
+保留现有主表结构
+不新增平行业绩表
+商务标项目中的“实际选用项目经理/总工/业绩”通过 bid_project_resource_bindings 记录
+结论
+这是“现有主表保留，项目级绑定解决”的典型场景。
+7.5 file_asset
+现状
+现有系统全局文件资产表已存在。
+要求
+继续作为全局文件元数据主表使用
+商务标模块不要新建一个平行全局文件主表
+与 bid_project_files 的关系
+file_asset = 全局文件资产
+bid_project_files = 项目内文件角色关系
+建议
+在 bid_project_files 中新增 file_asset_id 关联现有文件资产。
+7.6 audit_item
+现状
+现有审核项表已存在，用于资料确认与文件审核。
+要求
+不重建同义审核主表
+商务标制作中的确认节点用 bid_project_confirmations
+两者职责不同，不要混表
+区分方式
+audit_item：资料底座审核
+bid_project_confirmations：商务标项目流程确认
+7.7 import_batch
+现状
+现有导入批次表已存在。
+要求
+商务标模块不要再建平行导入批次表
+商务标项目如果上传招标文件，应记录在 bid_project_files
+资料导入仍然使用原有 import_batch
+
+8. 特别需要统一口径的字段
+8.1 company_id
+统一要求：
+所有正式业务对象必须有 company_id 或可稳定追溯到 company_id
+商务标项目表和相关子表必须带 company_id 或通过 project_id 关联项目主表获得
+8.2 company_name
+统一要求：
+只能作为展示冗余字段
+不能替代 company_id
+如果存在，必须允许后续同步更新
+8.3 project_id
+统一要求：
+商务标项目相关表使用 project_id 指向 bid_projects.id
+不要和现有“工程项目名称 project_name”概念混淆
+8.4 人员/业绩/章节绑定字段
+统一要求：
+首版统一通过 bid_project_resource_bindings 表达
+不要求强改底座主表字段结构
+
+9. 不建议直接照方案硬建的字段
+以下字段不是说永远不能做，而是当前版本不建议直接落到底座主表。
+9.1 project_performance.project_manager_person_id
+原因：
+当前 project_performance 仍以历史资料沉淀为主
+大量历史数据未必天然有人员 ID 强绑定
+强推改造会引起历史数据迁移和一致性问题
+建议：
+通过 bid_project_resource_bindings 实现项目级绑定
+9.2 project_performance.technical_leader_person_id
+同上。
+9.3 project_performance.safety_leader_person_id
+如需增加，也建议后置，不作为首版强制项。
+9.4 全局重新命名 company_profile -> company
+不建议。
+9.5 新建第二张日志表替代 change_log
+不建议。
+
+10. 建议的数据库变更顺序
+程序员实施时，建议按以下顺序推进。
+第一步：修正现有底座不一致项
+先补齐以下字段：
+issue_record.company_id
+honor_record.company_id
+integrity_record.company_id
+evaluation_record.company_id
+change_log.company_id（建议）
+change_log.project_id（建议）
+第二步：新增商务标模块专属表
+直接新增：
+bid_projects
+bid_project_steps
+bid_project_actions
+bid_project_confirmations
+bid_project_risks
+bid_project_versions
+bid_project_outputs
+bid_project_resource_bindings
+bid_project_files
+bid_project_tasks
+第三步：补索引
+补充：
+bid_projects(company_id, project_status)
+bid_project_steps(project_id, step_order)
+bid_project_confirmations(project_id, confirm_status)
+bid_project_risks(project_id, risk_level, status)
+bid_project_versions(project_id, version_no)
+bid_project_tasks(project_id, status)
+第四步：最后再考虑底座精细化重构
+比如：
+业绩和人员关系更强 ID 化
+章节依赖模型细化
+文件资产与项目输出更深关联
+这些放后续版本，不要卡首版。
+
+11. 技术负责人审核时应重点检查什么
+审核数据库方案时，请重点检查：
+11.1 是否误建了平行主表
+如果程序员新增了以下表，应重点质疑：
+company
+bid_person
+bid_qualification
+bid_performance
+project_files（若和 bid_project_files、file_asset 职责混乱）
+11.2 是否忽略了现有 schema 和现有接口的不一致
+重点检查：
+issue_record.company_id
+honor_record.company_id
+integrity_record.company_id
+evaluation_record.company_id
+11.3 是否把项目级绑定误做成底座主表强绑定改造
+重点检查：
+是否硬改 project_performance 去承载全部商务标选择逻辑
+是否把项目经理、总工等直接写回资料底座主表造成污染
+11.4 是否缺失版本和确认节点表
+如果没有：
+bid_project_confirmations
+bid_project_versions
+则商务标工作流很难真正可回退、可确认、可恢复。
+
+12. 给程序员的最终执行口径
+请按以下原则处理数据库改造：
+资料底座继续沿用现有表，不重建平行主表
+商务标制作只新增项目级工作流相关表
+先修现有多公司字段不一致问题，再做商务标模块新增
+company_profile 继续作为公司主表，不改表名
+商务标中的人员/业绩/附件选择，首版统一通过绑定表解决
+不要首版就强改资料底座全面 ID 化
+所有新增表必须带清晰的 project_id/company_id/version_no 关系
+
+13. CTO 最终结论
+当前系统新增“商务标制作”功能时，数据库层面最正确的做法不是“按理想模型推翻重建”，而是：
+沿用现有资料底座 + 修正现有多公司字段不一致 + 新增商务标项目工作流表
+这条路线：
+冲突最小
+返工最少
+最适合程序员直接落地
+也最符合现有源码现状
+本文件可直接作为程序员建表改表前的数据库审核依据。

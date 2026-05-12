@@ -1,0 +1,872 @@
+
+多公司管理后台新增“商务标制作”功能技术实施方案（CTO版）
+多公司管理后台新增“商务标制作”功能技术实施方案（CTO版）
+1. 文档定位
+本文档用于指导在现有“建筑工程行业多公司后台管理系统”中新增 商务标制作 功能模块的技术实现。
+本方案基于以下输入输出：
+产品文档：《商务标制作栏目工作流状态设计》
+页面架构文档：《商务标制作栏目页面信息架构图》
+现有系统源码目录：/Users/raoyi/.openclaw/workspace/bid_data_management
+现有系统定位：多公司统一资料管理后台，当前页面支持公司维度切换，业务对象围绕人员、资质、业绩、荣誉、诚信、评价等资料底座展开
+本文档目标不是复述产品方案，而是站在 CTO 视角，给程序员一份可直接执行的完整技术实施方案，明确：
+在现有系统上如何增量改造
+商务标制作模块应如何嵌入当前多公司后台架构
+数据模型、接口、页面、工作流、任务编排、状态机、导出机制如何实现
+首版 MVP 范围、实施阶段、风险控制和测试口径是什么
+
+2. CTO 总体结论
+2.1 结论
+“商务标制作”功能 适合直接接入现有多公司后台系统，并且技术上应采用：
+单公司视角下的项目级工作流模块
+也就是说：
+顶部仍然保留多公司切换器
+用户进入某一个公司后
+在该公司上下文中进入“商务标制作”栏目
+后台围绕该公司发起、管理、执行、确认、回退、导出商务标项目
+2.2 不建议的做法
+以下做法不建议采用：
+不要把商务标制作做成一个脱离资料底座的独立系统
+不要把商务标制作仅仅做成一个“上传文件→导出文档”的黑盒接口
+不要把 Agent 流程和后台界面做成两套状态语言
+不要首版就扩成跨公司主体推荐系统
+不要把整个功能做成长链同步请求，必须采用任务化异步工作流
+2.3 最终技术路线
+推荐统一采用：
+现有多公司资料后台 + 单公司商务标项目工作流 + 项目级状态机 + 异步任务编排 + 版本化输出机制
+
+3. 与现有系统的关系
+3.1 当前源码现状判断
+从现有源码结构看：
+前端
+React 19 + TypeScript + Vite
+Ant Design 6
+React Router 7
+TanStack Query
+Zustand
+已存在公司上下文：src/context/CompanyContext.tsx
+已存在资料库、导入中心、审核中心、问题中心、导出中心、设置页等模块
+后端
+Node.js + Express
+SQLite
+已存在 companies、imports 等 API 模块
+已存在数据库初始化与 schema 机制
+已有基础 AI 服务文件：src/application/ai_service.js
+这说明现有系统已经具备：
+多公司底座
+对象化资料底座
+前后端分层结构
+本地数据库与文件管理基础
+因此，商务标制作不是推翻重做，而是在现有系统上新增一个项目级工作流子系统。
+3.2 关系定位
+商务标制作与现有模块的关系应定义为：
+资料库 = 商务标制作的数据底座
+导入中心 = 资料补齐入口
+审核中心 = 资料确认与附件确认入口
+风险 / 问题中心 = 商务标制作过程中异常与风险的总出口之一
+导出中心 = 可与商务标输出结果形成联动
+商务标制作 = 消费资料底座、驱动项目级编排的新栏目
+3.3 系统边界
+现阶段“商务标制作”只处理：
+当前已选公司下的商务标项目
+当前公司适配性分析
+当前公司内部资料组合
+商务标章节生成
+附件装配
+风险复核
+输出结果导出
+当前版本不处理跨公司主体推荐与多公司自动比选。
+
+4. 模块定位与产品形态
+4.1 模块定位
+“商务标制作”在系统中应作为新的一级栏目：
+商务标制作
+项目列表页
+项目工作台
+历史版本 / 任务记录
+模板与配置（后续）
+4.2 核心对象
+该模块的核心对象不是单个文档，而是：
+商务标项目（Bid Project）
+工作流步骤（Workflow Step）
+确认节点（Confirmation Node）
+风险项（Risk Item）
+输出版本（Output Version）
+4.3 核心能力
+首版必须完成以下能力：
+项目创建
+招标文件上传与规则解析
+当前公司适配性分析
+当前公司内部最优资料组合
+用户确认
+章节生成
+附件装配
+风险复核
+输出结果生成
+历史版本回看
+
+5. 架构原则
+5.1 原则一：商务标制作必须依托现有资料底座
+商务标制作不能维护一套独立于资料库之外的人员、业绩、资质、附件数据。
+它应：
+读取资料底座中的结构化对象
+基于当前项目规则进行筛选、评分、组合和装配
+在项目侧保存“引用关系”和“版本快照”
+而不是复制出第二套资料主表。
+5.2 原则二：商务标必须是项目级工作流，不是单次函数调用
+原因：
+状态多阶段
+存在人工确认
+存在阻断与回退
+存在局部重跑
+存在输出版本管理
+所以必须采用：
+项目表
+步骤表
+任务表
+确认表
+版本表
+5.3 原则三：Agent 与后台共享同一套状态语言
+必须和产品文档保持一致：
+项目级状态
+created
+preparing
+running
+waiting_user_confirmation
+blocked
+completed
+failed
+cancelled
+archived
+步骤级状态
+not_started
+queued
+running
+success
+waiting_confirm
+warning
+blocked
+failed
+skipped
+确认节点状态
+pending
+confirmed
+rejected
+expired
+cancelled
+5.4 原则四：项目内使用“当前公司上下文”而非“跨公司推荐”
+由于系统已具备多公司切换器，因此商务标制作在首版中：
+必须继承当前 company_id
+不再做跨公司主体横向比较
+只分析当前公司是否适配
+只从当前公司资料池中选人、选业绩、选附件
+5.5 原则五：必须支持版本化和可回退
+任何以下动作都不能覆盖式无痕修改：
+重解析招标文件
+重新做适配性分析
+重新选人员/业绩组合
+重新生成章节
+重新装配附件
+重新输出
+都应留下版本痕迹。
+
+6. 总体技术架构
+6.1 架构分层
+在现有系统基础上，新增“商务标制作子域”，形成如下结构：
+A. 前端接入层
+负责：
+商务标项目列表页
+商务标项目工作台
+各步骤页展示
+用户确认操作
+版本回看与导出操作
+B. 本地 API 层
+负责：
+商务标项目 CRUD
+步骤状态查询
+文件上传
+工作流动作触发
+人工确认提交
+章节预览与输出结果获取
+C. 应用编排层
+负责：
+项目创建
+工作流步骤推进
+异步任务调度
+人工确认前后流转
+错误恢复与局部重跑
+D. 领域服务层
+负责：
+招标规则解析服务
+当前公司适配性分析服务
+资料组合服务
+章节生成服务
+附件装配服务
+风险复核服务
+输出结果装配服务
+E. 存储层
+负责：
+商务标项目数据库表
+步骤状态表
+确认节点表
+输出版本表
+项目文件目录
+日志与任务记录
+
+7. 新增领域模型设计
+7.1 新增子域
+建议新增 business_bid / commercial_bid 子域，包含以下核心实体：
+bid_project
+bid_project_step
+bid_project_action
+bid_project_confirmation
+bid_project_risk
+bid_project_version
+bid_project_output
+bid_project_resource_binding
+bid_project_file
+bid_project_task
+7.2 核心实体说明
+bid_project
+表示一个商务标制作项目，是整个工作流的根对象。
+bid_project_step
+表示一个标准工作流步骤，如规则解析、适配性分析、组合推荐、章节生成等。
+bid_project_action
+表示步骤内部更细粒度动作，用于局部重跑、错误排查、章节子任务跟踪。
+bid_project_confirmation
+表示人工确认节点，如“确认继续使用当前公司”“确认资料组合”“确认带风险继续”。
+bid_project_risk
+表示项目中的风险项与阻断项。
+bid_project_version
+表示一次完整生成版本或阶段性快照。
+bid_project_output
+表示导出的文件结果，如商务标草稿、章节文件、风险复核报告等。
+bid_project_resource_binding
+表示项目本次版本中实际选用的人员、业绩、资质、附件、承诺等资源引用。
+bid_project_file
+表示该项目上传和生成的文件，包括招标文件、补遗、输出文件等。
+bid_project_task
+表示异步执行任务，如规则解析任务、章节生成任务、风险复核任务。
+
+8. 数据库设计建议
+8.1 新增表建议
+建议至少新增以下表：
+bid_projects
+bid_project_steps
+bid_project_actions
+bid_project_confirmations
+bid_project_risks
+bid_project_versions
+bid_project_outputs
+bid_project_resource_bindings
+bid_project_files
+bid_project_tasks
+8.2 关键表字段建议
+bid_projects
+建议字段：
+id
+company_id
+project_name
+tender_code
+construction_location
+project_status
+current_step
+current_step_status
+adaptation_conclusion
+risk_level
+blocking_reason
+last_error_message
+last_confirm_type
+active_version_no
+created_source（agent / ui）
+created_by
+created_at
+updated_at
+bid_project_steps
+建议字段：
+id
+project_id
+step_name
+step_order
+step_status
+warning_count
+retry_count
+blocking_reason
+error_message
+started_at
+finished_at
+created_at
+updated_at
+bid_project_confirmations
+建议字段：
+id
+project_id
+version_no
+confirm_type
+confirm_status
+confirm_payload_json
+confirmed_by
+confirmed_at
+expired_at
+created_at
+bid_project_risks
+建议字段：
+id
+project_id
+version_no
+risk_type
+risk_level
+related_object_type
+related_object_id
+risk_message
+impact_desc
+resolution_suggestion
+is_blocking
+status
+created_at
+updated_at
+bid_project_versions
+建议字段：
+id
+project_id
+version_no
+version_type（draft / regenerated / rollback / final）
+snapshot_json
+summary_json
+created_by
+created_at
+bid_project_resource_bindings
+建议字段：
+id
+project_id
+version_no
+resource_type（person / performance / qualification / attachment / promise / chapter）
+resource_id
+resource_label
+binding_role
+binding_source（system / user）
+reason_json
+created_at
+bid_project_outputs
+建议字段：
+id
+project_id
+version_no
+output_type
+file_name
+file_path
+mime_type
+status
+created_at
+bid_project_files
+建议字段：
+id
+project_id
+company_id
+file_role（tender / addendum / clarification / generated / temp）
+file_name
+original_path
+stored_path
+mime_type
+file_size
+sha256
+created_at
+bid_project_tasks
+建议字段：
+id
+project_id
+company_id
+step_name
+task_type
+status
+payload_json
+result_json
+error_message
+started_at
+finished_at
+created_at
+8.3 索引建议
+建议增加以下索引：
+bid_projects(company_id, project_status)
+bid_projects(company_id, updated_at)
+bid_project_steps(project_id, step_order)
+bid_project_confirmations(project_id, confirm_status)
+bid_project_risks(project_id, risk_level, status)
+bid_project_versions(project_id, version_no)
+bid_project_outputs(project_id, version_no)
+bid_project_tasks(project_id, status)
+
+9. 工作流设计
+9.1 标准工作流步骤
+建议工作流固定为以下 8 步：
+规则解析
+主体适配性分析
+最优资料组合
+用户确认
+章节生成
+附件装配
+风险复核
+输出完成
+9.2 工作流推进原则
+自动推进步骤
+规则解析
+主体适配性分析
+最优资料组合
+章节生成
+附件装配
+风险复核
+输出完成
+人工阻断步骤
+用户确认
+高风险继续确认
+缺失项处理确认
+9.3 状态流转
+项目级
+created -> preparing -> running -> waiting_user_confirmation -> running -> completed
+异常路径：
+running -> blocked
+running -> failed
+running -> cancelled
+completed -> archived
+步骤级
+not_started -> queued -> running -> success
+异常路径：
+running -> waiting_confirm
+running -> warning
+running -> blocked
+running -> failed
+not_started -> skipped
+9.4 确认节点类型
+首版建议支持：
+confirm_company_continue
+confirm_combination
+confirm_risk_continue
+confirm_output_version
+
+10. 前端实施方案
+10.1 一级导航改造
+在现有一级导航中新增：
+商务标制作
+建议导航顺序：
+首页
+公司列表
+资料库
+导入中心
+审核中心
+风险与异常
+商务标制作
+导出中心
+设置
+10.2 路由建议
+建议新增以下路由：
+/bid-projects
+/bid-projects/:id
+/bid-projects/:id/overview
+/bid-projects/:id/rules
+/bid-projects/:id/adaptation
+/bid-projects/:id/combination
+/bid-projects/:id/confirm
+/bid-projects/:id/chapters
+/bid-projects/:id/attachments
+/bid-projects/:id/risk-review
+/bid-projects/:id/outputs
+/bid-projects/:id/logs
+/bid-projects/:id/versions
+10.3 页面实现优先级
+P0 页面
+项目列表页
+项目概览页
+主体适配性分析页
+最优资料组合页
+用户确认页
+章节生成页
+风险复核页
+输出结果页
+P1 页面
+规则解析页增强
+附件装配页增强
+Agent 轨迹页
+历史版本页
+10.4 前端公共组件建议
+新增组件：
+BidProjectStatusTag
+BidStepProgressBar
+BidRiskBadge
+BidConfirmationCard
+BidVersionList
+BidResourceBindingPanel
+BidOutputFileList
+BidStepActionBar
+10.5 公司上下文要求
+商务标制作页面必须复用现有 CompanyContext：
+进入 scope=single 的当前公司上下文
+新建项目自动继承 currentCompanyId
+在当前公司未选中时，不允许直接进入商务标制作流程
+
+11. 后端实施方案
+11.1 API 模块建议
+建议新增 API 模块：
+src/api/bid_projects.js
+src/api/bid_project_steps.js
+src/api/bid_project_confirmations.js
+src/api/bid_project_outputs.js
+src/api/bid_project_versions.js
+并在 src/api/routes.js 中注册。
+11.2 服务层建议
+建议新增服务文件：
+src/application/bid_project_service.js
+src/application/tender_rule_parser_service.js
+src/application/company_adaptation_service.js
+src/application/resource_combination_service.js
+src/application/chapter_generation_service.js
+src/application/attachment_assembly_service.js
+src/application/risk_review_service.js
+src/application/bid_output_service.js
+src/application/bid_workflow_engine.js
+11.3 工作流引擎建议
+建议新增轻量工作流引擎，不做重量级 BPM。
+实现方式建议：
+每个步骤一个 handler
+统一上下文 BidWorkflowContext
+统一推进函数 runNextStep(projectId)
+统一错误和阻断处理
+例如：
+JavaScriptasync function runNextStep(projectId) {  const project = await loadProject(projectId)  switch (project.current_step) {    case 'rule_parse':      return runRuleParse(project)    case 'company_adaptation':      return runCompanyAdaptation(project)    case 'resource_combination':      return runCombination(project)    case 'user_confirmation':      return waitConfirmation(project)    case 'chapter_generation':      return runChapterGeneration(project)    case 'attachment_assembly':      return runAttachmentAssembly(project)    case 'risk_review':      return runRiskReview(project)    case 'output_finalize':      return finalizeOutputs(project)    default:      return project  }}
+11.4 异步任务机制
+商务标制作不应走同步接口。
+建议：
+创建项目后即建立任务记录
+规则解析、章节生成、风险复核、输出生成都走异步任务
+前端轮询或订阅项目状态
+
+12. 资料底座与商务标组合关系
+12.1 读取策略
+商务标制作应读取现有资料底座中的：
+当前公司人员库
+当前公司资质库
+当前公司业绩库
+当前公司附件库
+当前公司承诺模板/可配内容（若有）
+12.2 不建议复制主数据
+系统不应把人员、业绩、资质复制进商务标业务主表，而应：
+做引用绑定
+做版本快照
+保留选择依据
+12.3 组合结果保存方式
+建议保存在：
+bid_project_resource_bindings
+bid_project_versions.snapshot_json
+其中：
+bindings 用于高频查询和页面展示
+snapshot 用于版本回看和回滚恢复
+
+13. 招标规则解析方案
+13.1 输入
+输入文件包括：
+招标文件
+补遗文件
+澄清文件
+13.2 输出
+建议标准化输出：
+项目元信息
+资格规则
+评分规则
+否决项
+章节结构清单
+资料要求清单
+13.3 实现建议
+首版可采用：
+OCR / 文本抽取
+规则关键词抽取
+结构化 JSON 归一化
+人工修正入口
+建议保留：
+原始解析结果
+标准化解析结果
+置信度/异常标记
+
+14. 当前公司适配性分析方案
+14.1 分析目标
+回答以下问题：
+当前公司是否满足投标资格
+当前公司预计总分大致如何
+当前公司缺哪些关键材料
+当前公司有哪些高风险/阻断项
+是否建议继续推进商务标生成
+14.2 分析输入
+项目规则
+当前公司资质
+当前公司人员
+当前公司业绩
+当前公司附件完备度
+当前公司历史风险/异常信息（如需要）
+14.3 输出结果
+建议结构化输出：
+adaptation_conclusion
+qualification_match_result
+score_estimation
+missing_requirements
+blocking_items
+risk_items
+continue_recommendation
+14.4 页面呈现
+必须与状态机联动：
+可继续 → success / waiting_confirm
+可继续但有风险 → warning / waiting_confirm
+不可继续 → blocked
+
+15. 资料组合与章节生成方案
+15.1 组合策略
+从当前公司资料池中选择：
+人员组合
+业绩组合
+资质支撑
+承诺项
+附件支撑
+首版建议：
+先规则驱动 + 显式评分逻辑
+不做过深的 AI 黑盒决策
+页面必须能解释“为什么选它”
+15.2 章节生成策略
+章节建议拆分为独立子任务：
+投标函及附录
+授权委托书/法定代表人身份证明
+项目管理机构
+资格审查资料
+类似项目情况表
+承诺函
+其他章节
+每一章都应具备：
+状态
+依赖对象
+使用附件
+风险提示
+重生成入口
+15.3 数据保存
+章节生成结果建议保存：
+章节文本/结构 JSON
+章节文件路径
+章节依赖对象引用
+章节状态
+
+16. 附件装配与风险复核方案
+16.1 附件装配
+装配逻辑需完成：
+根据章节要求匹配附件
+校验附件是否存在
+校验附件路径有效性
+标记缺失附件
+标记路径异常
+生成附件清单
+16.2 风险复核
+风险需分层：
+资格风险
+评分覆盖风险
+资料完整性风险
+人员冲突风险
+附件路径风险
+格式签章风险
+否决投标风险
+16.3 阻断规则
+若出现以下情况，应允许项目进入 blocked：
+资格不满足
+缺失必需证明材料
+存在明确否决项
+用户拒绝带风险继续
+
+17. 输出结果与版本管理方案
+17.1 输出结果类型
+首版建议至少支持：
+商务标草稿
+章节文件
+风险复核报告
+缺失项清单
+附件装配清单
+17.2 版本策略
+每次以下动作都建议生成版本：
+首次正式生成
+重新组合后再生成
+风险确认后再生成
+用户手动回滚后再生成
+17.3 回滚策略
+支持：
+查看旧版本
+比较版本差异
+回滚至旧版本
+再次导出某个版本
+
+18. 文件存储建议
+18.1 项目文件目录结构
+建议新增目录结构：
+backend/data/bid_projects/  {company_id}/    {project_id}/      source/      parsed/      generated/      assembled/      exports/      versions/
+18.2 目录含义
+source/：招标原始文件
+parsed/：规则解析结果
+generated/：章节生成结果
+assembled/：附件装配结果
+exports/：最终导出结果
+versions/：版本快照文件
+
+19. 接口建议
+19.1 项目接口
+GET /api/bid-projects?company_id=xxx
+POST /api/bid-projects
+GET /api/bid-projects/:id
+PATCH /api/bid-projects/:id
+POST /api/bid-projects/:id/cancel
+POST /api/bid-projects/:id/archive
+19.2 步骤与工作流接口
+GET /api/bid-projects/:id/steps
+POST /api/bid-projects/:id/run
+POST /api/bid-projects/:id/retry-step
+POST /api/bid-projects/:id/regenerate-chapter
+POST /api/bid-projects/:id/review-risk
+19.3 确认接口
+GET /api/bid-projects/:id/confirmations
+POST /api/bid-projects/:id/confirmations/:confirmId/confirm
+POST /api/bid-projects/:id/confirmations/:confirmId/reject
+19.4 结果接口
+GET /api/bid-projects/:id/outputs
+GET /api/bid-projects/:id/versions
+POST /api/bid-projects/:id/rollback
+POST /api/bid-projects/:id/export
+
+20. MVP 范围建议
+20.1 P0 必做
+商务标制作一级导航
+商务标项目列表页
+商务标项目表与步骤表
+单公司上下文项目创建
+招标文件上传与规则解析
+当前公司适配性分析
+当前公司内部资料组合
+用户确认节点
+章节生成基础能力
+风险复核基础能力
+输出结果页
+版本记录基础能力
+异步任务与状态机落库
+20.2 P1 建议补充
+附件装配页增强
+Agent 轨迹页
+版本差异对比
+局部章节重跑
+更细粒度风险分类
+模板与配置页
+20.3 当前不建议做
+跨公司主体推荐
+多人协同审批
+云端协同
+自定义工作流编排器
+通用 BPM 引擎
+
+21. 实施阶段建议
+阶段一：底座建设
+交付：
+新增数据库表
+新增后端 API 骨架
+新增前端路由与导航入口
+新增项目文件目录结构
+阶段二：工作流与状态机
+交付：
+项目创建
+步骤状态落库
+任务系统接入
+工作流推进引擎
+确认节点处理机制
+阶段三：业务能力落地
+交付：
+规则解析
+当前公司适配性分析
+资料组合
+章节生成
+风险复核
+阶段四：页面工作台落地
+交付：
+项目列表页
+项目概览页
+适配性分析页
+组合页
+确认页
+章节页
+风险页
+输出页
+阶段五：版本、导出、联调
+交付：
+版本页
+输出文件管理
+回滚能力
+联调测试
+验收测试
+
+22. 风险评估与控制
+22.1 风险一：把商务标做成黑盒接口
+控制：
+必须有项目工作台
+必须有步骤条
+必须有状态落库
+22.2 风险二：和现有资料底座割裂
+控制：
+商务标只引用资料底座对象
+不另建第二套人员/业绩/资质主数据
+22.3 风险三：状态口径混乱
+控制：
+Agent 与后台统一状态枚举
+项目级/步骤级/确认级状态统一定义
+22.4 风险四：首版范围过大
+控制：
+当前只做单公司模式
+当前不做跨公司主体推荐
+当前不做模板中心大后台
+22.5 风险五：同步调用导致卡死
+控制：
+长流程一律任务化
+页面轮询状态
+错误与重试可追踪
+
+23. 测试与验收标准
+23.1 功能验收
+必须覆盖：
+单公司上下文下新建商务标项目
+招标文件上传与解析
+当前公司适配分析结果正确展示
+人员/业绩组合结果正确展示
+用户确认后流程推进
+章节生成状态正确
+风险复核状态正确
+输出文件可查看/可下载
+版本记录可查看
+23.2 数据验收
+必须验证：
+项目 company_id 正确
+步骤状态落库正确
+确认记录落库正确
+风险项与阻断项落库正确
+输出文件与版本号对应正确
+资源绑定与实际选择对象一致
+23.3 稳定性验收
+必须验证：
+长任务失败后可恢复
+用户拒绝确认后项目进入正确状态
+阻断项目不能误推进
+回滚后状态与输出结果一致
+
+24. 给程序员的最终执行口径
+请按以下原则执行：
+商务标制作是现有多公司后台中的新增一级模块，不是独立系统
+首版严格按单公司模式实现，继承当前公司上下文
+商务标制作必须以“项目级工作流”实现，不允许只做单次接口
+必须增加项目、步骤、确认、风险、版本、输出、资源绑定等核心表
+必须与现有资料库打通，读取当前公司资料底座
+Agent 和后台必须使用同一套状态口径
+长流程必须异步任务化
+首版必须支持版本记录与有限回退
+
+25. CTO 最终结论
+在现有多公司管理后台中新增“商务标制作”功能，技术上完全可行，并且应采用 单公司项目工作流模块 的方式接入。
+这次改造不是在现有系统旁边再做一个小工具，而是在现有资料底座之上，新增一个面向业务结果的项目级编排层。
+最终建议：
+保持现有多公司资料底座不变
+新增商务标项目工作流子系统
+严格按状态机、任务化、版本化方式落地
+首版只做单公司模式，把工作流打透，再考虑后续跨公司推荐扩展
+可直接交由程序员按本方案实施。

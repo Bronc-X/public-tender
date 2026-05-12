@@ -1,0 +1,91 @@
+:root {
+  --primary-color: #1677ff;
+  --bg-color: #f5f7fa;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-color);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.ant-layout {
+  background: var(--bg-color);
+}
+
+.ant-layout-header {
+  padding: 0 24px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  z-index: 10;
+}
+
+.ant-layout-sider {
+  background: #fff;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.02);
+}
+
+.logo-container {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 15px;
+  font-weight: bold;
+  color: var(--primary-color);
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.content-container {
+  padding: 24px;
+  min-height: calc(100vh - 64px);
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  border-radius: 12px;
+  transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Step4 事实映射 + 覆盖率面板 */
+.step4-artifacts-card {
+  border-radius: 14px !important;
+  background: linear-gradient(145deg, #fafbff 0%, #f1f5ff 48%, #eef2ff 100%) !important;
+  border: 1px solid rgba(99, 102, 241, 0.18) !important;
+  box-shadow: 0 8px 28px rgba(79, 70, 229, 0.06);
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.step4-artifacts-card .ant-card-head {
+  border-bottom: 1px solid rgba(99, 102, 241, 0.12);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.step4-artifacts-card .ant-tabs-nav {
+  margin-bottom: 0;
+  padding: 0 4px;
+}
+
+.step4-artifacts-card--compact {
+  margin-bottom: 20px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+
+.step4-coverage-inner {
+  padding: 4px 0 8px;
+}
